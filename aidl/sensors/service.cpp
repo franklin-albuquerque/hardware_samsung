@@ -17,6 +17,9 @@
 #include <android-base/logging.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
+#include <fstream>
+#include <chrono>
+#include <thread>
 #include "HalProxyAidl.h"
 
 using ::aidl::android::hardware::sensors::implementation::HalProxyAidl;
@@ -24,6 +27,30 @@ using ::aidl::android::hardware::sensors::implementation::HalProxyAidl;
 int main() {
     ABinderProcess_setThreadPoolMaxThreadCount(0);
 
+    // Wait for sensors MCU to fully init on o1s (and probably other exynos 2100 devices) 
+    bool isBooted = false;
+    while (!isBooted) {
+        std::ifstream file("/sys/devices/virtual/sensors/ssp_sensor/mcu_test");
+        std::string value;
+
+        if (!file) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
+        if (file >> value) {
+            size_t length = value.length();
+            size_t suffixLength = 2;  // Length of "OK"
+
+            if (length >= suffixLength) {
+                isBooted = value.substr(length - suffixLength) == "OK";
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    
     // Make a default multihal sensors service
     auto halProxy = ndk::SharedRefBase::make<HalProxyAidl>();
     const std::string halProxyName = std::string() + HalProxyAidl::descriptor + "/default";
